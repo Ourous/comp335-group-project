@@ -98,6 +98,7 @@ namespace {
 
 	TEST(TypeByName, ExistingTypes) {
 		system_config *config = parse_config(defaultConfigPath);
+		ASSERT_NE(config, nullptr);
 		auto *type = &config->types[0];
 		for(auto t = 0; t < config->num_types; ++t) {
 			auto *type = &config->types[0];
@@ -108,6 +109,7 @@ namespace {
 
 	TEST(TypeByName, NoSuchType) {
 		system_config *config = parse_config(exampleConfigPath);
+		ASSERT_NE(config, nullptr);
 		EXPECT_THROW(config->type_by_name("this should break"), std::invalid_argument);
 		free_config(config);
 	}

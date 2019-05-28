@@ -1,0 +1,65 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{2a8c38ca-de9c-471c-a8c9-72e2efe55b1c}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\src\algorithms.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\cpp_util.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\job_info.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\resource_info.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\socket_client.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\stringhelper.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\system_config.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\worst_fit.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="job_info.test.cpp" />
+    <ClCompile Include="resource_info.test.cpp" />
+    <ClCompile Include="stringhelper.test.cpp" />
+    <ClCompile Include="system_config.test.cpp" />
+    <ClCompile Include="worst_fit.test.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\src\algorithms.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\cpp_util.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\job_info.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\resource_info.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\socket_client.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\stringhelper.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\system_config.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\worst_fit.h">
+      <Filter>src</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
