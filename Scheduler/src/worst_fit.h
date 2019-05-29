@@ -15,7 +15,7 @@ extern "C" {
 
 #include "algorithms.h"
 
-server_info *worst_fit(system_config* config, server_group *candidates, job_info job);
+server_info *worst_fit(system_config* config, job_info job);
 
 #ifdef __cplusplus
 #ifdef EXTERN_C_worst_fit_h_

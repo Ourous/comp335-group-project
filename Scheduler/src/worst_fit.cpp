@@ -4,7 +4,7 @@
 #include <limits>
 #include <cstdint>
 
-server_info *worst_fit(system_config* config, server_group *candidates, job_info job) {
+server_info *worst_fit(system_config* config, job_info job) {
 	intmax_t worst_fit, other_fit, type_fit;
 	server_info *worst_server, *other_server, *type_server;
 	worst_fit = other_fit = type_fit = std::numeric_limits<intmax_t>::min();

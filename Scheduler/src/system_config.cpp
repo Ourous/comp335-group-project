@@ -8,6 +8,7 @@ ASSERT_IS_POD(system_config);
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <optional>
 
 inline namespace {
 
@@ -77,16 +78,20 @@ inline namespace {
 		} else return true;
 	}
 	
-	// helper to call update_from_string on a system_config until a socket_client runs out of updates to send
-	std::vector<server_info*> process_update(system_config *config, socket_client *client) {
+	// helper to call update_server_from_string on a system_config until a socket_client runs out of updates to send
+	std::vector<server_info*> process_resc_data(system_config *config, socket_client *client) {
 		std::vector<server_info*> vec;
 		client_send(client, "OK");
 		std::string response = strcpy_and_free(client_receive(client));
 
 		while(response != ".") {
-			vec.push_back(config->update_from_string(response));
+			vec.push_back(config->update_server_from_string(response));
 			client_send(client, "OK");
 			response = strcpy_and_free(client_receive(client));
+		}
+
+		for(auto server : vec) {
+			server->update_jobs(client);
 		}
 
 		return vec;
@@ -97,24 +102,30 @@ void server_type::release() noexcept {
 	free(name);
 }
 
+void server_info::release() noexcept {
+	if(jobs != nullptr) free(jobs);
+}
+
 void server_group::release() noexcept {
 	free(const_cast<server_info**>(servers));
 }
 
 void system_config::release() noexcept {
 
+	for(auto i = 0; i < num_servers; ++i) servers[i].release();
+
+	free(servers);
+
 	for(auto i = 0; i < num_types; ++i) const_cast<server_type*>(types)[i].release();
 
 	free(const_cast<server_type*>(types));
-
-	free(servers);
 }
 
 void system_config::update(socket_client *client) {
 
 	if(!client_msg_resp(client, "RESC All", "DATA")) throw std::runtime_error("Server did not respond as expected!");
 
-	else process_update(this, client);
+	else process_resc_data(this, client);
 }
 
 void system_config::update(socket_client *client, const server_type *type) {
@@ -125,7 +136,7 @@ void system_config::update(socket_client *client, const server_type *type) {
 
 	if(!client_msg_resp(client, request_str.c_str(), "DATA")) throw std::runtime_error("Server did not respond as expected!");
 
-	else process_update(this, client);
+	else process_resc_data(this, client);
 };
 
 std::vector<server_info *> system_config::update(socket_client *client, const resource_info &resc) {
@@ -136,10 +147,10 @@ std::vector<server_info *> system_config::update(socket_client *client, const re
 
 	if(!client_msg_resp(client, request_str.c_str(), "DATA")) throw std::runtime_error("Server did not respond as expected!");
 
-	else return process_update(this, client);
+	else return process_resc_data(this, client);
 }
 
-server_info *system_config::update_from_string(const std::string &str) {
+server_info *system_config::update_server_from_string(const std::string &str) {
 	std::istringstream stream(str);
 	std::string name;
 	size_t id;
@@ -157,6 +168,47 @@ server_info *system_config::update_from_string(const std::string &str) {
 
 	return server;
 };
+
+void server_info::update_jobs(socket_client *client) {
+	std::ostringstream request;
+	request << "LSTJ " << type->name << " " << id;
+
+	auto request_str = request.str(); // required for safety because this is otherwise a temporary object
+
+	if(!client_msg_resp(client, request_str.c_str(), "DATA")) throw std::runtime_error("Server did not respond as expected!");
+
+	std::vector<schd_info> vec;
+
+	client_send(client, "OK");
+
+	std::string response = strcpy_and_free(client_receive(client));
+
+	while(response != ".") {
+		std::istringstream stream(response);
+		size_t job_id;
+		int state;
+		schd_info schd;
+		//intmax_t start_time;
+		//uintmax_t est_runtime;
+		//resource_info resc;
+
+		stream >> job_id >> state >> schd.start_time >> schd.est_runtime >> schd.req_resc.cores >> schd.req_resc.memory >> schd.req_resc.disk;
+
+		if(state > 2) continue; // job has finished, effectively
+		vec.push_back(schd);
+		client_send(client, "OK");
+		response = client_receive(client);
+	}
+
+	if(jobs != nullptr) free(jobs);
+	if(vec.empty()) {
+		jobs = nullptr;
+		num_jobs = 0;
+	}
+	else {
+		num_jobs = memcpy_from_vector(jobs, vec);
+	}
+}
 
 system_config *parse_config(const char *path) noexcept {
 	TiXmlDocument doc;
@@ -204,7 +256,7 @@ system_config *parse_config(const char *path) noexcept {
 		auto *type = &config->types[t];
 
 		for(size_t id = 0; id < type->limit; ++id) {
-			servers.push_back(server_info{ type, id, server_state::SS_INACTIVE, 0, type->max_resc });
+			servers.push_back(server_info{ type, id, server_state::SS_INACTIVE, 0, type->max_resc, nullptr, 0 });
 		}
 	}
 

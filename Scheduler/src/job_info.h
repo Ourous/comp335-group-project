@@ -31,6 +31,12 @@ typedef struct job_info {
 #endif
 } job_info;
 
+typedef struct schd_info {
+	intmax_t start_time;
+	uintmax_t est_runtime;
+	resource_info req_resc;
+} schd_info;
+
 // whether a job can run on given resources, wraps job_info.can_run
 bool job_can_run(const job_info *job, const resource_info resc) noexcept;
 

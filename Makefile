@@ -15,7 +15,7 @@ CXXFLAGS = -std=gnu++11
 .PHONY: all
 all: $(BINARY)
 
-$(BINARY): main.o algorithms.o worst_fit.o socket_client.o system_config.o resource_info.o job_info.o stringhelper.o cpp_util.o -ltinyxml -lpcre2-8
+$(BINARY): main.o algorithms.o worst_fit.o socket_client.o system_config.o resource_info.o job_info.o stringhelper.o cpp_util.o stage_three.o -ltinyxml -lpcre2-8
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ $^
 
 main.o: main.c
@@ -36,7 +36,9 @@ cpp_util.o: cpp_util.cpp cpp_util.h
 
 worst_fit.o: worst_fit.cpp worst_fit.h
 
-test: system_config.test.o job_info.test.o resource_info.test.o stringhelper.test.o worst_fit.test.o system_config.o job_info.o resource_info.o socket_client.o stringhelper.o cpp_util.o worst_fit.o -ltinyxml -lpcre2-8 -lpthread -lgtest -lgtest_main
+stage_three.o: stage_three.cpp stage_three.h
+
+test: system_config.test.o job_info.test.o resource_info.test.o stringhelper.test.o worst_fit.test.o system_config.o job_info.o resource_info.o socket_client.o stringhelper.o cpp_util.o worst_fit.o stage_three.o -ltinyxml -lpcre2-8 -lpthread -lgtest -lgtest_main
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $(TEST) $^
 	./$(TEST)
 

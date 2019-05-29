@@ -47,9 +47,10 @@ void run_algorithm(socket_client *client, algorithm_t algorithm) {
 				choice = best_fit(config, job);
 				break;
 			case WORST_FIT:
-				avail_servers = updated_servers_by_avail(config, client, job.req_resc);
-				choice = worst_fit(config, avail_servers, job);
-				free_group(avail_servers);
+				choice = worst_fit(config, job);
+				break;
+			case STAGE_THREE:
+				choice = stage_three(config, job);
 				break;
 		}
 		//server_info *choice = algorithm(config, avail_servers, job); // do not free

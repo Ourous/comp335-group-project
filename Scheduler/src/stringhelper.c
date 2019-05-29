@@ -79,7 +79,6 @@ job_info strtojob(const char *jobstr, regex_info *regex) {
 	j.req_resc.cores = values[3];
 	j.req_resc.memory = values[4];
 	j.req_resc.disk = values[5];
-
 	//pcre2_match_data_free(regex->match_data);
 	return j;
 }

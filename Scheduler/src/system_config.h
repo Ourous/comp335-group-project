@@ -44,9 +44,13 @@ typedef struct server_info {
 	server_state state; // the current state of this server
 	intmax_t avail_time; // can be -1, meaning "available now" (based on RESC example info from spec)
 	resource_info avail_resc; // the available resources on this server
+	schd_info *jobs;
+	size_t num_jobs;
 #ifdef __cplusplus
 	bool update(server_state state, intmax_t time, const resource_info &resc) noexcept;
+	void update_jobs(socket_client* client);
 	void reset() noexcept;
+	void release() noexcept;
 #endif
 } server_info;
 
@@ -75,7 +79,7 @@ typedef struct system_config {
 	// returns the servers updated by the RESC command
 	std::vector<server_info*> update(socket_client *client, const resource_info &resc);
 	// format is "<type> <id> <state> <avail_time> <avail_cores> <avail_mem> <avail_disk>"
-	server_info *update_from_string(const std::string &str);
+	server_info *update_server_from_string(const std::string &str);
 	void release() noexcept;
 #endif
 } system_config;
