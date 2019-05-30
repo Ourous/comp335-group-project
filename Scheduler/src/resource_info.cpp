@@ -24,3 +24,7 @@ bool operator==(const resource_info &lhs, const resource_info &rhs)  noexcept {
 bool operator!=(const resource_info &lhs, const resource_info &rhs)  noexcept {
 	return lhs.cores != rhs.cores || lhs.memory != rhs.memory || lhs.disk != rhs.disk;
 };
+
+resource_info operator+(const resource_info &lhs, const resource_info &rhs) noexcept {
+	return resource_info{lhs.cores + rhs.cores, lhs.memory + rhs.memory, lhs.disk + rhs.disk};
+};

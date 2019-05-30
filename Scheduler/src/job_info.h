@@ -32,6 +32,7 @@ typedef struct job_info {
 } job_info;
 
 typedef struct schd_info {
+	uintmax_t job_id;
 	intmax_t start_time;
 	uintmax_t est_runtime;
 	resource_info req_resc;

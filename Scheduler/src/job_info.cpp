@@ -1,6 +1,7 @@
 #include "job_info.h"
 #include "cpp_util.h"
 ASSERT_IS_POD(job_info);
+ASSERT_IS_POD(schd_info);
 
 #include <stdexcept>
 #include <limits>

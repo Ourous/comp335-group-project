@@ -30,6 +30,7 @@ bool operator>(const resource_info &lhs, const resource_info &rhs) noexcept;
 bool operator>=(const resource_info &lhs, const resource_info &rhs) noexcept;
 bool operator==(const resource_info &lhs, const resource_info &rhs) noexcept;
 bool operator!=(const resource_info &lhs, const resource_info &rhs) noexcept;
+resource_info operator+(const resource_info &lhs, const resource_info &rhs) noexcept;
 #endif
 
 #ifdef __cplusplus
