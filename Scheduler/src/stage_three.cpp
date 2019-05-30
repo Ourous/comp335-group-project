@@ -31,7 +31,7 @@ resource_info resc_diff(const resource_info &lhs, const resource_info &rhs) noex
 
 bool compare_margins(const resource_info &lhs, const resource_info &rhs) noexcept {
 	if(lhs.cores > rhs.cores) return true;
-	else if(lhs.cores == rhs.cores && lhs.memory >= rhs.memory && lhs.disk >= rhs.disk) return true;
+	else if(lhs.cores == rhs.cores && lhs.memory >= rhs.memory && lhs.disk >= rhs.disk && lhs != rhs) return true;
 	else return false;
 }
 
@@ -55,7 +55,7 @@ std::pair<intmax_t, resource_info> est_avail_stat(const server_info *server, con
 		std::sort(ITER(remaining_jobs), [](schd_info lhs, schd_info rhs) { return lhs.job_id < rhs.job_id; });
 		intmax_t current_time = static_cast<intmax_t>(job.submit_time);
 		resource_info current_util = server->avail_resc;
-		// add the first estimated finished job each time until we have enough resources, then return the resultant time
+		// run a simulation of the currently allocated jobs until we hit a time when there are enough resources available to run the new one, then return that resource quantity and the time
 		while(!remaining_jobs.empty()) {
 			remaining_jobs.erase(std::remove_if(ITER(remaining_jobs), [current_time](schd_info arg) { return arg.start_time != -1 && arg.start_time + arg.est_runtime <= current_time; }), remaining_jobs.end());
 			current_util = RESC_MIN;
@@ -65,8 +65,9 @@ std::pair<intmax_t, resource_info> est_avail_stat(const server_info *server, con
 				else current_util = current_util + schd_job.req_resc;
 			}
 			if(waiting_jobs == 0 && (current_util + job.req_resc) <= server->type->max_resc) break;
-			while(true) {
-				bool scheduled_new_job = false;
+			bool scheduled_new_job = false;
+			do {
+				scheduled_new_job = false;
 				for(auto &schd_job : remaining_jobs) {
 					if(schd_job.start_time != -1) continue;
 					else if((current_util + schd_job.req_resc) <= server->type->max_resc) {
@@ -75,15 +76,13 @@ std::pair<intmax_t, resource_info> est_avail_stat(const server_info *server, con
 						scheduled_new_job = true;
 					}
 				}
-				if(!scheduled_new_job) break;
-			}
+			} while(scheduled_new_job);
 			intmax_t next_finished_time = std::numeric_limits<intmax_t>::max();
 			for(auto schd_job : remaining_jobs) {
 				if(schd_job.start_time != -1) next_finished_time = std::min(schd_job.start_time + static_cast<intmax_t>(schd_job.est_runtime*2), next_finished_time);
 			}
 			current_time = next_finished_time;
 		}
-		//if(!job.can_run(current_util))
 		return std::pair<intmax_t, resource_info>(current_time, resc_diff(current_util, server->type->max_resc));
 	}
 }
@@ -107,13 +106,17 @@ server_info *stage_three(system_config* config, job_info job) {
 		auto new_fitness = job.fitness(avail_resc);
 		auto new_margin = resc_diff(avail_resc, job.req_resc);
 		auto waiting_jobs = num_waiting_jobs(server);
-		if(waiting_jobs == 0 && wf_waiting > 0) {
-			wf_avail_time = avail_time;
-			wf_fitness = new_fitness;
-			wf_server = server;
-			wf_waiting = waiting_jobs;
-			wf_margin = new_margin;
-		} else if((wf_waiting == 0) == (waiting_jobs == 0) && (avail_time < wf_avail_time || (avail_time == wf_avail_time && (compare_margins(new_margin, wf_margin) || (new_fitness == wf_fitness && waiting_jobs <= wf_waiting))))) {
+		if((waiting_jobs == 0 && wf_waiting > 0)
+			|| ((wf_waiting == 0) == (waiting_jobs == 0)
+			&& (avail_time < wf_avail_time 
+			|| (avail_time == wf_avail_time 
+			&& (compare_margins(new_margin, wf_margin) 
+			|| (new_fitness == wf_fitness
+			&& (waiting_jobs < wf_waiting
+			|| (waiting_jobs == wf_waiting
+			&& server->type->rate <= wf_server->type->rate
+			)))))))) // trust me this is the best it'll look
+		{
 			wf_avail_time = avail_time;
 			wf_fitness = new_fitness;
 			wf_server = server;
