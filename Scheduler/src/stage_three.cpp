@@ -48,13 +48,17 @@ std::pair<intmax_t, resource_info> est_avail_stat(const server_info *server, con
 	if(!job.can_run(server->type->max_resc) || server->state == SS_UNAVAILABLE) return std::pair<intmax_t, resource_info>(std::numeric_limits<intmax_t>::max(), RESC_MIN);
 	else if(job.can_run(server->avail_resc)) return std::pair<intmax_t, resource_info>(server->avail_time, server->avail_resc);
 	else {
-		std::vector<schd_info> remaining_jobs;
-		for(auto s = 0; s < server->num_jobs; ++s) {
-			remaining_jobs.push_back(server->jobs[s]);
-		}
-		std::sort(ITER(remaining_jobs), [](schd_info lhs, schd_info rhs) { return lhs.job_id < rhs.job_id; });
 		intmax_t current_time = static_cast<intmax_t>(job.submit_time);
 		resource_info current_util = server->avail_resc;
+		std::vector<schd_info> remaining_jobs;
+		for(auto s = 0; s < server->num_jobs; ++s) {
+			auto schd_job(server->jobs[s]);
+			//if(schd_job.start_time != -1 && schd_job.start_time + schd_job.est_runtime < current_time) schd_job.est_runtime = 1 + current_time - schd_job.start_time;
+			remaining_jobs.push_back(schd_job);
+		}
+
+		std::sort(ITER(remaining_jobs), [](schd_info lhs, schd_info rhs) { return lhs.job_id < rhs.job_id; });
+		
 		// run a simulation of the currently allocated jobs until we hit a time when there are enough resources available to run the new one, then return that resource quantity and the time
 		while(!remaining_jobs.empty()) {
 			remaining_jobs.erase(std::remove_if(ITER(remaining_jobs), [current_time](schd_info arg) { return arg.start_time != -1 && arg.start_time + arg.est_runtime <= current_time; }), remaining_jobs.end());
@@ -89,11 +93,12 @@ std::pair<intmax_t, resource_info> est_avail_stat(const server_info *server, con
 
 // general idea: prioritize first available server, then the server least impacted by the job (either maxed out or way oversized)
 server_info *stage_three(system_config* config, job_info job) {
-	server_info *wf_server = nullptr;
-	intmax_t wf_fitness = std::numeric_limits<intmax_t>::min();
-	intmax_t wf_avail_time = std::numeric_limits<intmax_t>::max();
-	size_t wf_waiting = std::numeric_limits<size_t>::max();
-	resource_info wf_margin = RESC_MIN;
+	server_info *cur_server = nullptr;
+	intmax_t cur_fitness = std::numeric_limits<intmax_t>::min();
+	intmax_t cur_avail_time = std::numeric_limits<intmax_t>::max();
+	size_t cur_waiting = std::numeric_limits<size_t>::max();
+	size_t cur_pending = std::numeric_limits<size_t>::max();
+	resource_info cur_margin = RESC_MIN;
 
 	// maybe also look at parsing lstj?
 
@@ -106,23 +111,27 @@ server_info *stage_three(system_config* config, job_info job) {
 		auto new_fitness = job.fitness(avail_resc);
 		auto new_margin = resc_diff(avail_resc, job.req_resc);
 		auto waiting_jobs = num_waiting_jobs(server);
-		if((waiting_jobs == 0 && wf_waiting > 0)
-			|| ((wf_waiting == 0) == (waiting_jobs == 0)
-			&& (avail_time < wf_avail_time 
-			|| (avail_time == wf_avail_time 
-			&& (compare_margins(new_margin, wf_margin) 
-			|| (new_fitness == wf_fitness
-			&& (waiting_jobs < wf_waiting
-			|| (waiting_jobs == wf_waiting
-			&& server->type->rate <= wf_server->type->rate
-			)))))))) // trust me this is the best it'll look
+		auto pending_jobs = server->num_jobs;
+		if((waiting_jobs == 0 && cur_waiting > 0)
+			|| ((cur_waiting == 0) == (waiting_jobs == 0)
+			&& (avail_time < cur_avail_time 
+			|| (avail_time == cur_avail_time 
+			&& (compare_margins(new_margin, cur_margin)
+			|| (new_fitness == cur_fitness
+			&& (waiting_jobs < cur_waiting
+			|| (waiting_jobs == cur_waiting
+			&& (pending_jobs < cur_pending
+			|| (pending_jobs == cur_pending
+			&& server->type->rate <= cur_server->type->rate
+			)))))))))) // trust me this is the best it'll look
 		{
-			wf_avail_time = avail_time;
-			wf_fitness = new_fitness;
-			wf_server = server;
-			wf_waiting = waiting_jobs;
-			wf_margin = new_margin;
+			cur_avail_time = avail_time;
+			cur_fitness = new_fitness;
+			cur_server = server;
+			cur_waiting = waiting_jobs;
+			cur_margin = new_margin;
+			cur_pending = pending_jobs;
 		}
 	}
-	return wf_server;
+	return cur_server;
 }
