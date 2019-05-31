@@ -91,33 +91,33 @@ std::pair<intmax_t, resource_info> est_avail_stat(const server_info *server, con
 	}
 }
 
-// general idea: prioritize first available server, then the server least impacted by the job (either maxed out or way oversized)
+// general idea: schedule job on available servers, then on offline servers, then on busy servers with descending quantity of jobs
 server_info *stage_three(system_config* config, job_info job) {
 	server_info *cur_server = nullptr;
-	intmax_t cur_fitness = std::numeric_limits<intmax_t>::min();
+	resource_info cur_margin = RESC_MIN;
 	intmax_t cur_avail_time = std::numeric_limits<intmax_t>::max();
 	size_t cur_waiting = std::numeric_limits<size_t>::max();
 	size_t cur_pending = std::numeric_limits<size_t>::max();
-	resource_info cur_margin = RESC_MIN;
+	bool cur_can_run_now = false;
 
-	// maybe also look at parsing lstj?
-
-	for(auto s = 0; s < config->num_servers; ++s) { // ALWAYS boot a new server instead of waiting if possible
+	for(auto s = 0; s < config->num_servers; ++s) { 
 		auto *server = &config->servers[s];
 		auto est_stat = est_avail_stat(server, job);
 		intmax_t avail_time = est_stat.first;
 		resource_info avail_resc = est_stat.second;
-		if(!job.can_run(avail_resc)) continue;
-		auto new_fitness = job.fitness(avail_resc);
-		auto new_margin = resc_diff(avail_resc, job.req_resc);
-		auto waiting_jobs = num_waiting_jobs(server);
-		auto pending_jobs = server->num_jobs;
-		if((waiting_jobs == 0 && cur_waiting > 0)
-			|| ((cur_waiting == 0) == (waiting_jobs == 0)
+		if(!job.can_run(avail_resc)) continue; // if we couldn't find any time or any resource value where the job could run on the server, skip it
+		auto new_margin = resc_diff(avail_resc, job.req_resc); // how much the 
+		auto waiting_jobs = num_waiting_jobs(server); // number of jobs allocated and not running yet
+		auto pending_jobs = server->num_jobs; // number of jobs currently allocated to a server
+		bool can_run_now = job.can_run(server->avail_resc); // handles cases where jobs have already exceeded their estimated run-time, and are running
+		// if there are no waiting jobs on the server and the next best has waiting jobs
+		// if there are no running jobs on the server and the next best has running jobs and can't immediately run the job
+		if(((waiting_jobs == 0 && cur_waiting > 0) || (can_run_now && !cur_can_run_now)) // ALWAYS boot a new server instead of waiting if possible
+			|| (((cur_waiting == 0) == (waiting_jobs == 0) && cur_can_run_now == can_run_now)
 			&& (avail_time < cur_avail_time 
 			|| (avail_time == cur_avail_time 
 			&& (compare_margins(new_margin, cur_margin)
-			|| (new_fitness == cur_fitness
+			|| (new_margin.cores == cur_margin.cores//new_fitness == cur_fitness
 			&& (waiting_jobs < cur_waiting
 			|| (waiting_jobs == cur_waiting
 			&& (pending_jobs < cur_pending
@@ -126,11 +126,11 @@ server_info *stage_three(system_config* config, job_info job) {
 			)))))))))) // trust me this is the best it'll look
 		{
 			cur_avail_time = avail_time;
-			cur_fitness = new_fitness;
 			cur_server = server;
 			cur_waiting = waiting_jobs;
 			cur_margin = new_margin;
 			cur_pending = pending_jobs;
+			cur_can_run_now = can_run_now;
 		}
 	}
 	return cur_server;
