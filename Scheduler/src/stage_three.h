@@ -16,7 +16,7 @@ extern "C" {
 
 #include "algorithms.h"
 
-server_info *stage_three(system_config* config, job_info job);
+server_info *predictive_fit(system_config* config, job_info job);
 
 #ifdef __cplusplus
 #ifdef EXTERN_C_stage_three_h_

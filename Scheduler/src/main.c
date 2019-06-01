@@ -26,8 +26,8 @@ int main(int argc, char **argv) {
 					else if(strcmp(argv[i], "wf") == 0)
 						a = WORST_FIT;
 					//algorithm = &worst_fit;
-					else if(strcmp(argv[i], "s3") == 0)
-						a = STAGE_THREE;
+					else if(strcmp(argv[i], "pf") == 0)
+						a = PREDICTIVE_FIT;
 					else
 						fprintf(stderr, "algorithm not implemented: %s\n", argv[i]);
 					break;

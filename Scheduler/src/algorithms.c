@@ -49,8 +49,8 @@ void run_algorithm(socket_client *client, algorithm_t algorithm) {
 			case WORST_FIT:
 				choice = worst_fit(config, job);
 				break;
-			case STAGE_THREE:
-				choice = stage_three(config, job);
+			case PREDICTIVE_FIT:
+				choice = predictive_fit(config, job);
 				break;
 		}
 		//server_info *choice = algorithm(config, avail_servers, job); // do not free

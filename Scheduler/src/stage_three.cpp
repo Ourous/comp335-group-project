@@ -29,13 +29,13 @@ resource_info resc_diff(const resource_info &lhs, const resource_info &rhs) noex
 
 bool wf_compare_margins(const resource_info &lhs, const resource_info &rhs) noexcept {
 	if(lhs.cores > rhs.cores) return true;
-	else if(lhs.cores == rhs.cores && lhs.memory >= rhs.memory && lhs.disk >= rhs.disk && lhs != rhs) return true;
+	else if(lhs >= rhs) return true;
 	else return false;
 }
 
 bool bf_compare_margins(const resource_info &lhs, const resource_info &rhs) noexcept {
 	if(lhs.cores < rhs.cores) return true;
-	else if(lhs.cores == rhs.cores && lhs.memory <= rhs.memory && lhs.disk <= rhs.disk && lhs != rhs) return true;
+	else if(lhs <= rhs) return true;
 	else return false;
 }
 
@@ -54,16 +54,15 @@ Runs look-ahead simulation on the jobs currently allocated to the server,
 Returns the time that this happens, and the resources available at that point.
 */
 std::tuple<intmax_t, size_t, resource_info> est_avail_stat(const server_info *server, const job_info &job) noexcept {
-	if(!job.can_run(server->type->max_resc) || server->state == SS_UNAVAILABLE) return std::tuple<intmax_t, size_t, resource_info>(std::numeric_limits<intmax_t>::max(), 0, RESC_MIN);
-	else if(job.can_run(server->avail_resc)) return std::tuple<intmax_t, size_t, resource_info>(std::max(server->avail_time, static_cast<intmax_t>(job.submit_time)), 0, server->avail_resc);
+	if(!job.can_run(server->type->max_resc) || server->state == SS_UNAVAILABLE) return std::make_tuple(std::numeric_limits<intmax_t>::max(), 0, RESC_MIN);
+	else if(job.can_run(server->avail_resc)) return std::make_tuple(std::max(server->avail_time, static_cast<intmax_t>(job.submit_time)), 0, server->avail_resc);
 	else {
 		intmax_t current_time = static_cast<intmax_t>(job.submit_time);
-		if(server->state == SS_BOOTING || server->state == SS_INACTIVE) current_time += server->type->bootTime; // NEW
+		if(server->state == SS_BOOTING || server->state == SS_INACTIVE) current_time += server->type->bootTime;
 		resource_info current_util = server->avail_resc;
 		std::vector<schd_info> remaining_jobs;
 		for(auto s = 0; s < server->num_jobs; ++s) {
-			auto schd_job(server->jobs[s]);
-			remaining_jobs.push_back(schd_job);
+			remaining_jobs.push_back(server->jobs[s]);
 		}
 
 		std::sort(ITER(remaining_jobs), [](schd_info lhs, schd_info rhs) { return lhs.job_id < rhs.job_id; });
@@ -95,21 +94,18 @@ std::tuple<intmax_t, size_t, resource_info> est_avail_stat(const server_info *se
 			}
 			current_time = next_finished_time;
 		}
-		return std::tuple<intmax_t, size_t, resource_info>(current_time, waiting_jobs, resc_diff(current_util, server->type->max_resc));
+		return std::make_tuple(current_time, waiting_jobs, resc_diff(current_util, server->type->max_resc));
 	}
 }
 
 enum search_mode {FF = 0, WF = 1, BF = 2};
 
 // general idea: schedule job on available servers, then on offline servers, then on busy servers with descending quantity of jobs
-server_info *stage_three(system_config* config, job_info job) {
+server_info *predictive_fit(system_config* config, job_info job) {
 	server_info *cur_server = nullptr;
 	resource_info cur_margin = RESC_MIN;
 	intmax_t cur_avail_time = std::numeric_limits<intmax_t>::max();
-	size_t cur_waiting = std::numeric_limits<size_t>::max();
-	size_t cur_pending = std::numeric_limits<size_t>::max();
 	size_t cur_delayed = std::numeric_limits<size_t>::max();
-	bool cur_can_run_now = false;
 	search_mode cur_mode = FF;
 
 	for(auto s = 0; s < config->num_servers; ++s) { 
@@ -121,8 +117,6 @@ server_info *stage_three(system_config* config, job_info job) {
 		if(!job.can_run(avail_resc)) continue; // if we couldn't find any time or any resource value where the job could run on the server, skip it
 		auto new_margin = resc_diff(avail_resc, job.req_resc); // how much the
 		auto waiting_jobs = num_waiting_jobs(server); // number of jobs allocated and not running yet
-		auto pending_jobs = server->num_jobs; // number of jobs currently allocated to a server
-		bool can_run_now = job.can_run(server->avail_resc) && (server->state == SS_IDLE || server->state == SS_ACTIVE); // handles cases where jobs have already exceeded their estimated run-time, and are running
 		//TODO: maybe look at servers that are booting?
 		search_mode new_mode = FF;
 		if(job.can_run(server->avail_resc) && (server->state == SS_IDLE || server->state == SS_ACTIVE) && waiting_jobs == 0) new_mode = BF;
@@ -131,17 +125,22 @@ server_info *stage_three(system_config* config, job_info job) {
 		if(new_mode < cur_mode) continue;
 		else if(cur_mode == new_mode) switch(cur_mode) {
 			case BF:
+				// modified best-fit comparison
 				if(bf_compare_margins(new_margin, cur_margin)) break;
 				else if(bf_compare_margins(cur_margin, new_margin)) continue;
+				// compare by cost
 				else if(server->type->rate < cur_server->type->rate) break;
-				else continue;
+				continue;
 			case WF:
+				// modified worst-fit comparison
 				if(wf_compare_margins(new_margin, cur_margin)) break;
 				else if(wf_compare_margins(cur_margin, new_margin)) continue;
-				if(server->type->bootTime < cur_server->type->bootTime) break; // calculate a ratio for boot time vs server size based on current job resource requirement
+				// if possible, take the one with lower bootup time
+				if(server->type->bootTime < cur_server->type->bootTime) break;
 				else if(server->type->bootTime > cur_server->type->bootTime) continue;
+				// compare by cost
 				if(server->type->rate < cur_server->type->rate) break;
-				else continue;
+				continue;
 			case FF: // only switching on pending gives better results for long simulations, only switching on time gives good results for short ones
 				intmax_t cur_worst = cur_avail_time + (1 + cur_delayed) * job.est_runtime;
 				intmax_t new_worst = avail_time + (1 + delayed_jobs) * job.est_runtime;
@@ -165,7 +164,6 @@ server_info *stage_three(system_config* config, job_info job) {
 		cur_server = server;
 		cur_margin = new_margin;
 		cur_avail_time = avail_time;
-		cur_waiting = waiting_jobs;
 		cur_mode = new_mode;
 		cur_delayed = delayed_jobs;
 	}
