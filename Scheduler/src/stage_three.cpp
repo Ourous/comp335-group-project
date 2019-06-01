@@ -18,6 +18,9 @@ constexpr resource_info RESC_MAX {
 };
 
 constexpr resource_info RESC_MIN { 0, 0, 0 };
+constexpr size_t DELAY_OFFSET = 1;
+constexpr int PESSIMISM_FACTOR = 2;
+
 
 resource_info resc_diff(const resource_info &lhs, const resource_info &rhs) noexcept {
 	return resource_info{
@@ -29,21 +32,18 @@ resource_info resc_diff(const resource_info &lhs, const resource_info &rhs) noex
 
 bool wf_compare_margins(const resource_info &lhs, const resource_info &rhs) noexcept {
 	if(lhs.cores > rhs.cores) return true;
-	else if(lhs >= rhs) return true;
-	else return false;
+	else return lhs > rhs;
 }
 
 bool bf_compare_margins(const resource_info &lhs, const resource_info &rhs) noexcept {
 	if(lhs.cores < rhs.cores) return true;
-	else if(lhs <= rhs) return true;
-	else return false;
+	else return lhs < rhs;
 }
 
 size_t num_waiting_jobs(const server_info *server) noexcept {
 	size_t total = 0;
 	for(auto s = 0; s < server->num_jobs; ++s) {
-		schd_info schd_job = server->jobs[s];
-		if(schd_job.start_time == -1) total++;
+		if(server->jobs[s].start_time == -1) total++;
 	}
 	return total;
 }
@@ -65,7 +65,7 @@ std::tuple<intmax_t, size_t, resource_info> est_avail_stat(const server_info *se
 			remaining_jobs.push_back(server->jobs[s]);
 		}
 
-		std::sort(ITER(remaining_jobs), [](schd_info lhs, schd_info rhs) { return lhs.job_id < rhs.job_id; });
+		//std::sort(ITER(remaining_jobs), [](schd_info lhs, schd_info rhs) { return lhs.job_id < rhs.job_id; }); // already sorted from server output
 		size_t waiting_jobs = 0;
 		// run a simulation of the currently allocated jobs until we hit a time when there are enough resources available to run the new one, then return that resource quantity and the time
 		while(!remaining_jobs.empty()) {
@@ -90,7 +90,7 @@ std::tuple<intmax_t, size_t, resource_info> est_avail_stat(const server_info *se
 
 			intmax_t next_finished_time = std::numeric_limits<intmax_t>::max();
 			for(auto schd_job : remaining_jobs) {
-				if(schd_job.start_time != -1) next_finished_time = std::min(schd_job.start_time + static_cast<intmax_t>(schd_job.est_runtime*2), next_finished_time);
+				if(schd_job.start_time != -1) next_finished_time = std::min(schd_job.start_time + static_cast<intmax_t>(schd_job.est_runtime*PESSIMISM_FACTOR), next_finished_time);
 			}
 			current_time = next_finished_time;
 		}
@@ -142,8 +142,8 @@ server_info *predictive_fit(system_config* config, job_info job) {
 				if(server->type->rate < cur_server->type->rate) break;
 				continue;
 			case FF: // only switching on pending gives better results for long simulations, only switching on time gives good results for short ones
-				intmax_t cur_worst = cur_avail_time + (1 + cur_delayed) * job.est_runtime;
-				intmax_t new_worst = avail_time + (1 + delayed_jobs) * job.est_runtime;
+				intmax_t cur_worst = cur_avail_time + (DELAY_OFFSET + cur_delayed) * job.est_runtime;
+				intmax_t new_worst = avail_time + (DELAY_OFFSET + delayed_jobs) * job.est_runtime;
 				// compare by weighted available time
 				if(new_worst <= cur_avail_time) break;
 				else if(avail_time >= cur_worst) continue;
