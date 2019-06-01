@@ -18,12 +18,6 @@ constexpr resource_info RESC_MAX {
 };
 constexpr resource_info RESC_MIN{ 0, 0, 0 };
 
-// 2 and 3 work REALLY well. Have tested all sensible pairs of primes up to P1000.
-
-constexpr int DELAY_OFFSET = 2; // prefer to not delay other jobs, and assume that jobs haven't been delayed by that much
-constexpr int ESTIMATE_FACTOR = 3; // assume all jobs run this much longer than estimated
-
-
 resource_info resc_diff(const resource_info &lhs, const resource_info &rhs) noexcept {
 	return resource_info{
 		std::max(lhs.cores,rhs.cores) - std::min(lhs.cores,rhs.cores),
@@ -71,7 +65,7 @@ std::tuple<intmax_t, size_t, resource_info> est_avail_stat(const server_info *se
 		size_t waiting_jobs = 0;
 		// run a simulation of the currently allocated jobs until we hit a time when there are enough resources available to run the new one, then return that resource quantity and the time
 		while(!remaining_jobs.empty()) {
-			remaining_jobs.erase(std::remove_if(ITER(remaining_jobs), [current_time](schd_info arg) { return arg.start_time != -1 && arg.start_time + arg.est_runtime*std::max(ESTIMATE_FACTOR-DELAY_OFFSET,1)*ESTIMATE_FACTOR <= current_time; }), remaining_jobs.end());
+			remaining_jobs.erase(std::remove_if(ITER(remaining_jobs), [current_time](schd_info arg) { return arg.start_time != -1 && arg.start_time + arg.est_runtime <= current_time; }), remaining_jobs.end());
 			current_util = RESC_MIN;
 			//bool has_waiting_job;
 			waiting_jobs = 0;
@@ -93,7 +87,7 @@ std::tuple<intmax_t, size_t, resource_info> est_avail_stat(const server_info *se
 
 			intmax_t next_finished_time = std::numeric_limits<intmax_t>::max();
 			for(auto schd_job : remaining_jobs) {
-				if(schd_job.start_time != -1) next_finished_time = std::min(schd_job.start_time + static_cast<intmax_t>(schd_job.est_runtime)*ESTIMATE_FACTOR, next_finished_time);
+				if(schd_job.start_time != -1) next_finished_time = std::min(schd_job.start_time + static_cast<intmax_t>(schd_job.est_runtime), next_finished_time);
 			}
 			current_time = next_finished_time;
 		}
@@ -145,8 +139,8 @@ server_info *predictive_fit(system_config* config, job_info job) {
 				if(server->type->rate < cur_server->type->rate) break;
 				continue;
 			case FF: // only switching on pending gives better results for long simulations, only switching on time gives good results for short ones
-				intmax_t cur_worst = cur_avail_time + (DELAY_OFFSET + cur_delayed) * job.est_runtime*ESTIMATE_FACTOR;
-				intmax_t new_worst = avail_time + (DELAY_OFFSET + delayed_jobs) * job.est_runtime*ESTIMATE_FACTOR;
+				intmax_t cur_worst = cur_avail_time + (1 + cur_delayed) * job.est_runtime;
+				intmax_t new_worst = avail_time + (1 + delayed_jobs) * job.est_runtime;
 				// compare by weighted available time
 				if(new_worst <= cur_avail_time) break;
 				else if(avail_time >= cur_worst) continue;
