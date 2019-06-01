@@ -131,11 +131,13 @@ server_info *stage_three(system_config* config, job_info job) {
 		if(new_mode < cur_mode) continue;
 		else if(cur_mode == new_mode) switch(cur_mode) {
 			case BF:
-				if(bf_compare_margins(new_margin, cur_margin) || new_margin.cores == cur_margin.cores && server->type->rate < cur_server->type->rate) break;
+				if(bf_compare_margins(new_margin, cur_margin)) break;
+				else if(bf_compare_margins(cur_margin, new_margin)) continue;
+				else if(server->type->rate < cur_server->type->rate) break;
 				else continue;
 			case WF:
 				if(wf_compare_margins(new_margin, cur_margin)) break;
-				else if(new_margin.cores < cur_margin.cores) continue;
+				else if(wf_compare_margins(cur_margin, new_margin)) continue;
 				if(server->type->bootTime < cur_server->type->bootTime) break; // calculate a ratio for boot time vs server size based on current job resource requirement
 				else if(server->type->bootTime > cur_server->type->bootTime) continue;
 				if(server->type->rate < cur_server->type->rate) break;
@@ -143,20 +145,27 @@ server_info *stage_three(system_config* config, job_info job) {
 			case FF: // only switching on pending gives better results for long simulations, only switching on time gives good results for short ones
 				intmax_t cur_worst = cur_avail_time + (1 + cur_delayed) * job.est_runtime;
 				intmax_t new_worst = avail_time + (1 + delayed_jobs) * job.est_runtime;
+				// compare by weighted available time
 				if(new_worst <= cur_avail_time) break;
 				else if(avail_time >= cur_worst) continue;
-				bool is_better_margin = delayed_jobs == 0 ? bf_compare_margins(new_margin, cur_margin) : wf_compare_margins(new_margin, cur_margin);
-				if(is_better_margin || new_margin.cores == cur_margin.cores && server->type->rate < cur_server->type->rate) break;
-				else continue;
+				// compare by best-fit
+				if(bf_compare_margins(new_margin,cur_margin)) break;
+				else if(bf_compare_margins(cur_margin,new_margin)) continue;
+				// compare by available time
+				if(avail_time < cur_avail_time) break;
+				else if(avail_time > cur_avail_time) continue;
+				// compare by potentially delayed jobs
+				if(delayed_jobs < cur_delayed) break;
+				else if(delayed_jobs > cur_delayed) continue;
+				// compare by cost
+				if(server->type->rate < cur_server->type->rate)break;
+				continue;
 		}
 
-		//continue;
-	//update_cur:
 		cur_server = server;
 		cur_margin = new_margin;
 		cur_avail_time = avail_time;
 		cur_waiting = waiting_jobs;
-		cur_pending = pending_jobs;
 		cur_mode = new_mode;
 		cur_delayed = delayed_jobs;
 	}
