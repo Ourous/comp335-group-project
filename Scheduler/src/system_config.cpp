@@ -200,7 +200,7 @@ void server_info::update_jobs(socket_client *client) {
 		stream >> schd.job_id >> state >> schd.start_time >> schd.est_runtime >> schd.req_resc.cores >> schd.req_resc.memory >> schd.req_resc.disk;
 
 		if(state > 2) continue; // job has finished, effectively
-		if(state < 2) schd.start_time = -1;
+		//if(state < 2) schd.start_time = -1; // NEW
 		vec.push_back(schd);
 		client_send(client, "OK");
 		response = client_receive(client);
