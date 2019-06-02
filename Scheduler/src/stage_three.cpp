@@ -1,7 +1,5 @@
 #include "stage_three.h"
 
-#include <map>
-#include <set>
 #include <algorithm>
 #include <functional>
 #include <numeric>
@@ -40,6 +38,10 @@ bool has_zeroed_resc(const resource_info &resc) noexcept {
 	return resc.cores == 0 || resc.memory == 0 || resc.disk == 0;
 }
 
+bool all_resc_larger(const resource_info &lhs, const resource_info &rhs) noexcept {
+	return lhs.cores > rhs.cores && lhs.memory > rhs.memory && lhs.disk > rhs.disk;
+}
+
 size_t num_waiting_jobs(const server_info *server) noexcept {
 	size_t total = 0;
 	for(auto s = 0; s < server->num_jobs; ++s) {
@@ -59,27 +61,21 @@ std::tuple<intmax_t, size_t, resource_info> est_avail_stat(const server_info *se
 	else {
 		intmax_t current_time = static_cast<intmax_t>(job.submit_time);
 		if(server->state == SS_BOOTING || server->state == SS_INACTIVE) current_time += server->type->bootTime;
-		resource_info current_util = server->avail_resc;
-		std::vector<schd_info> remaining_jobs;
-		for(auto s = 0; s < server->num_jobs; ++s) {
-			remaining_jobs.push_back(server->jobs[s]);
-		}
+		std::vector<schd_info> remaining_jobs(server->jobs, server->jobs + sizeof(schd_info)*server->num_jobs);
 
-		//std::sort(ITER(remaining_jobs), [](schd_info lhs, schd_info rhs) { return lhs.job_id < rhs.job_id; }); // already sorted from server output
+		resource_info current_util = resc_diff(server->type->max_resc, server->avail_resc);
 		size_t waiting_jobs = 0;
 		// run a simulation of the currently allocated jobs until we hit a time when there are enough resources available to run the new one, then return that resource quantity and the time
 		while(!remaining_jobs.empty()) {
-			remaining_jobs.erase(std::remove_if(ITER(remaining_jobs), [current_time](schd_info arg) { return arg.start_time != -1 && arg.start_time + arg.est_runtime <= current_time; }), remaining_jobs.end());
+			remaining_jobs.erase(std::remove_if(remaining_jobs.begin(), remaining_jobs.end(), [current_time](schd_info arg) { return ~arg.start_time && arg.start_time + arg.est_runtime <= current_time; }), remaining_jobs.end());
 			current_util = RESC_MIN;
-			//bool has_waiting_job;
 			waiting_jobs = 0;
 
-			for(schd_info schd_job : remaining_jobs) {
-				//if(schd_job.start_time == -1) waiting_jobs++;
-				if(schd_job.start_time != -1) current_util = current_util + schd_job.req_resc;
+			for(auto schd_job : remaining_jobs) {
+				if(~schd_job.start_time) current_util = current_util + schd_job.req_resc;
 			}
 			for(auto &schd_job : remaining_jobs) {
-				if(schd_job.start_time == -1){
+				if(!~schd_job.start_time){
 					if((current_util + schd_job.req_resc) <= server->type->max_resc) {
 						current_util = current_util + schd_job.req_resc;
 						schd_job.start_time = current_time;
@@ -91,12 +87,20 @@ std::tuple<intmax_t, size_t, resource_info> est_avail_stat(const server_info *se
 
 			intmax_t next_finished_time = std::numeric_limits<intmax_t>::max();
 			for(auto schd_job : remaining_jobs) {
-				if(schd_job.start_time != -1) next_finished_time = std::min(schd_job.start_time + static_cast<intmax_t>(schd_job.est_runtime), next_finished_time);
+				if(~schd_job.start_time) next_finished_time = std::min(schd_job.start_time + static_cast<intmax_t>(schd_job.est_runtime), next_finished_time);
 			}
 			current_time = next_finished_time;
 		}
 		return std::make_tuple(current_time, waiting_jobs, resc_diff(current_util, server->type->max_resc));
 	}
+}
+
+size_t inactive_of_type(const system_config* config, const server_type* type) noexcept {
+	size_t inactive = 0;
+	for(auto s = 0; s < type->limit; ++s) {
+		if(start_of_type(config, type)[s].state == SS_INACTIVE) inactive++;
+	}
+	return inactive;
 }
 
 enum search_mode {SM_PREDICTIVE = 0, SM_START_NEW = 1, SM_BEST_FIT = 2};
@@ -110,18 +114,18 @@ server_info *predictive_fit(system_config* config, job_info job) {
 	search_mode cur_mode = SM_PREDICTIVE;
 
 	for(auto s = 0; s < config->num_servers; ++s) { 
-		auto *server = &config->servers[s];
-		auto est_stat = est_avail_stat(server, job);
-		intmax_t avail_time = std::get<0>(est_stat);
-		size_t delayed_jobs = std::get<1>(est_stat);
+		auto *new_server = &config->servers[s];
+		auto est_stat = est_avail_stat(new_server, job);
+		intmax_t new_avail = std::get<0>(est_stat);
+		size_t new_delayed = std::get<1>(est_stat);
 		resource_info avail_resc = std::get<2>(est_stat);
 		if(!job.can_run(avail_resc)) continue; // if we couldn't find any time or any resource value where the job could run on the server, skip it
 		auto new_margin = resc_diff(avail_resc, job.req_resc); // how much the
-		auto waiting_jobs = num_waiting_jobs(server); // number of jobs allocated and not running yet
+		auto waiting_jobs = num_waiting_jobs(new_server); // number of jobs allocated and not running yet
 		//TODO: maybe look at servers that are booting?
 		search_mode new_mode = SM_PREDICTIVE;
-		if(job.can_run(server->avail_resc) && (server->state == SS_IDLE || server->state == SS_ACTIVE) && waiting_jobs == 0) new_mode = SM_BEST_FIT;
-		else if(server->state == SS_INACTIVE) new_mode = SM_START_NEW;
+		if(job.can_run(new_server->avail_resc) && (new_server->state == SS_IDLE || new_server->state == SS_ACTIVE) && waiting_jobs == 0) new_mode = SM_BEST_FIT;
+		else if(new_server->state == SS_INACTIVE) new_mode = SM_START_NEW;
 
 		if(new_mode < cur_mode) continue;
 		else if(cur_mode == new_mode && cur_server != nullptr) switch(cur_mode) {
@@ -131,67 +135,67 @@ server_info *predictive_fit(system_config* config, job_info job) {
 				else if(bf_compare_margins(cur_margin, new_margin)) continue;
 
 				// compare by cost
-				if(server->type->rate < cur_server->type->rate) break;
+				if(new_server->type->rate < cur_server->type->rate) break;
 				continue;
 
 			case SM_START_NEW:
 
-				// modified best-fit comparison, designed to leave the highest portion of contiguous resources unused
-				if(has_zeroed_resc(new_margin) && !has_zeroed_resc(cur_margin)) {
-					if(bf_compare_margins(server->type->max_resc, cur_margin)) break;
-					else if(bf_compare_margins(cur_margin, server->type->max_resc)) continue;
-				} else if(!has_zeroed_resc(new_margin) && has_zeroed_resc(cur_margin)) {
-					if(bf_compare_margins(new_margin, cur_server->type->max_resc)) break;
-					else if(bf_compare_margins(cur_server->type->max_resc, new_margin)) continue;
-				} else if(has_zeroed_resc(new_margin) && has_zeroed_resc(cur_margin)) {
-					if(bf_compare_margins(server->type->max_resc, cur_server->type->max_resc)) break;
-					else if(bf_compare_margins(cur_server->type->max_resc, server->type->max_resc)) continue;
-				} else {
-					if(bf_compare_margins(new_margin, cur_margin)) break;
-					else if(bf_compare_margins(cur_margin, new_margin)) continue;
-				}
-				
+				// start large servers but don't take the last one
+				if(all_resc_larger(new_margin, cur_server->type->max_resc) && inactive_of_type(config, new_server->type) > 2) break;
+				else if(all_resc_larger(cur_margin, new_server->type->max_resc) && inactive_of_type(config, cur_server->type) > 2) continue;
+					
+				//if(bf_compare_margins(new_margin, cur_margin)) break;
+				//else if(bf_compare_margins(cur_margin, new_margin)) continue;
+				if(new_margin.cores < cur_margin.cores || new_margin < cur_margin) break;
+				else if(new_margin.cores > cur_margin.cores || new_margin > cur_margin) continue;
+
+
 				// if possible, take the one with lower bootup time
-				if(server->type->bootTime < cur_server->type->bootTime) break;
-				else if(server->type->bootTime > cur_server->type->bootTime) continue;
+				if(new_server->type->bootTime < cur_server->type->bootTime) break;
+				else if(new_server->type->bootTime > cur_server->type->bootTime) continue;
 				// compare by cost
-				if(server->type->rate < cur_server->type->rate) break;
+				if(new_server->type->rate < cur_server->type->rate) break;
 				continue;
 
 			case SM_PREDICTIVE: // only switching on pending gives better results for long simulations, only switching on time gives good results for short ones
 				intmax_t cur_worst = cur_avail_time + (1 + cur_delayed) * job.est_runtime;
-				intmax_t new_worst = avail_time + (1 + delayed_jobs) * job.est_runtime;
+				intmax_t new_worst = new_avail + (1 + new_delayed) * job.est_runtime;
 				// compare by weighted available time
 				if(new_worst <= cur_avail_time) break;
-				else if(avail_time >= cur_worst) continue;
+				else if(new_avail >= cur_worst) continue;
 
 				// compare by available time
-				if(avail_time < cur_avail_time) break;
-				else if(avail_time > cur_avail_time) continue;
+				if(new_avail < cur_avail_time) break;
+				else if(new_avail > cur_avail_time) continue;
 
 				// compare by potentially delayed jobs
-				if(delayed_jobs < cur_delayed) break;
-				else if(delayed_jobs > cur_delayed) continue;
+				if(new_delayed < cur_delayed) break;
+				else if(new_delayed > cur_delayed) continue;
 				
 				// step forward in time and perform best-fit as usual
-				if((delayed_jobs == 0 && cur_delayed == 0) || (has_zeroed_resc(new_margin) && has_zeroed_resc(cur_margin))) {
-					if(bf_compare_margins(new_margin, cur_margin)) break;
-					else if(bf_compare_margins(cur_margin, new_margin)) continue;
+				if((new_delayed == 0 && cur_delayed == 0) || (has_zeroed_resc(new_margin) && has_zeroed_resc(cur_margin))) {
+					//if(bf_compare_margins(new_margin, cur_margin)) break;
+					//else if(bf_compare_margins(cur_margin, new_margin)) continue;
+					if(new_margin.cores < cur_margin.cores || new_margin < cur_margin) break;
+					else if(new_margin.cores > cur_margin.cores || new_margin > cur_margin) continue;
 				} else { // try to leave resources to run the delayed jobs
-					if(wf_compare_margins(new_margin, cur_margin)) break;
-					else if(wf_compare_margins(cur_margin, new_margin)) continue;
+					//if(wf_compare_margins(new_margin, cur_margin)) break;
+					//else if(wf_compare_margins(cur_margin, new_margin)) continue;
+					if(new_margin.cores > cur_margin.cores || new_margin > cur_margin) break;
+					else if(new_margin.cores < cur_margin.cores || new_margin < cur_margin) continue;
 				}
 
 				// compare by cost
-				if(server->type->rate < cur_server->type->rate)break;
+				if(new_server->type->rate < cur_server->type->rate)break;
 				continue;
-		}
-
-		cur_server = server;
+		}// else if(new_mode > cur_mode) s = -1; // restart loop at beginning
+		
+		// update current selection
+		cur_server = new_server;
 		cur_margin = new_margin;
-		cur_avail_time = avail_time;
+		cur_avail_time = new_avail;
 		cur_mode = new_mode;
-		cur_delayed = delayed_jobs;
+		cur_delayed = new_delayed;
 	}
 	return cur_server;
 }
