@@ -5,16 +5,16 @@ This project aims to implement a job scheduler for a distributed system.
 
 Developers:
 
-Ellis Abrahams (eabrahams)
+Ellis Abrahams (eabrahams) (up to Stage 2)
 
-Jonathan Stacey (Ourous)
+Jonathan Stacey (Ourous) (Stage 3)
 
-Armam Hassan (emoxeon)
+Armam Hassan (emoxeon) (up to Stage 2)
 
-## Stage 2
-This stage implements the First-Fit, Best-Fit and Worst-Fit algorithms.
+## Stage 3
+This stage implements the new Predictive-Fit Algorithm.
 
-In this branch are the Best-Fit and Worst-Fit algorithms, implemented in C.
+In this branch are the Best-Fit, Worst-Fit, and Predictive-Fit algorithms, implemented in C and C++.
 
 ## Compilation
 ### For building:
