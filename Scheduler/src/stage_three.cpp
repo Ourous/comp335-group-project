@@ -123,6 +123,12 @@ server_info *predictive_fit(system_config* config, job_info job) {
 
 			case SM_BEST_FIT:
 
+				// compare by available time, if the difference is relevant
+				if((new_server->state == SS_BOOTING && (new_avail - job.submit_time) >= job.est_runtime) || (cur_server->state == SS_BOOTING && (cur_avail - job.submit_time) >= job.est_runtime)) {
+					if(new_avail < cur_avail) break;
+					else if(new_avail > cur_avail) continue;
+				}
+
 				// compare by best-fit
 				if(new_margin.cores < cur_margin.cores || new_margin < cur_margin) break;
 				else if(new_margin.cores > cur_margin.cores || new_margin > cur_margin) continue;
@@ -137,8 +143,12 @@ server_info *predictive_fit(system_config* config, job_info job) {
 				if(all_resc_larger(new_margin, cur_server->type->max_resc) && inactive_of_type(config, new_server->type) > 2) break;
 				else if(all_resc_larger(cur_margin, new_server->type->max_resc) && inactive_of_type(config, cur_server->type) > 2) continue;
 					
-				if(new_margin.cores < cur_margin.cores || new_margin < cur_margin) break;
-				else if(new_margin.cores > cur_margin.cores || new_margin > cur_margin) continue;
+				// account for boot time if relevant
+				if(new_server->type->bootTime <= job.est_runtime && cur_server->type->bootTime <= job.est_runtime) {
+					// best-fit if boot time isn't relevant
+					if(new_margin.cores < cur_margin.cores || new_margin < cur_margin) break;
+					else if(new_margin.cores > cur_margin.cores || new_margin > cur_margin) continue;
+				}
 
 				// if possible, take the one with lower bootup time
 				if(new_server->type->bootTime < cur_server->type->bootTime) break;
