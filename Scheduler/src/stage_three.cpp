@@ -36,6 +36,10 @@ bool bf_compare_margins(const resource_info &lhs, const resource_info &rhs) noex
 	else return lhs < rhs;
 }
 
+bool has_zeroed_resc(const resource_info &resc) noexcept {
+	return resc.cores == 0 || resc.memory == 0 || resc.disk == 0;
+}
+
 size_t num_waiting_jobs(const server_info *server) noexcept {
 	size_t total = 0;
 	for(auto s = 0; s < server->num_jobs; ++s) {
@@ -95,15 +99,15 @@ std::tuple<intmax_t, size_t, resource_info> est_avail_stat(const server_info *se
 	}
 }
 
-enum search_mode {FF = 0, WF = 1, BF = 2};
+enum search_mode {SM_PREDICTIVE = 0, SM_START_NEW = 1, SM_BEST_FIT = 2};
 
 // general idea: schedule job on available servers, then on offline servers, then on busy servers with descending quantity of jobs
 server_info *predictive_fit(system_config* config, job_info job) {
 	server_info *cur_server = nullptr;
-	resource_info cur_margin = RESC_MIN;
+	resource_info cur_margin = RESC_MAX;
 	intmax_t cur_avail_time = std::numeric_limits<intmax_t>::max();
 	size_t cur_delayed = std::numeric_limits<size_t>::max();
-	search_mode cur_mode = FF;
+	search_mode cur_mode = SM_PREDICTIVE;
 
 	for(auto s = 0; s < config->num_servers; ++s) { 
 		auto *server = &config->servers[s];
@@ -115,44 +119,69 @@ server_info *predictive_fit(system_config* config, job_info job) {
 		auto new_margin = resc_diff(avail_resc, job.req_resc); // how much the
 		auto waiting_jobs = num_waiting_jobs(server); // number of jobs allocated and not running yet
 		//TODO: maybe look at servers that are booting?
-		search_mode new_mode = FF;
-		if(job.can_run(server->avail_resc) && (server->state == SS_IDLE || server->state == SS_ACTIVE) && waiting_jobs == 0) new_mode = BF;
-		else if(server->state == SS_INACTIVE) new_mode = WF;
+		search_mode new_mode = SM_PREDICTIVE;
+		if(job.can_run(server->avail_resc) && (server->state == SS_IDLE || server->state == SS_ACTIVE) && waiting_jobs == 0) new_mode = SM_BEST_FIT;
+		else if(server->state == SS_INACTIVE) new_mode = SM_START_NEW;
 
 		if(new_mode < cur_mode) continue;
-		else if(cur_mode == new_mode) switch(cur_mode) {
-			case BF:
-				// modified best-fit comparison
+		else if(cur_mode == new_mode && cur_server != nullptr) switch(cur_mode) {
+			case SM_BEST_FIT:
+				// compare by best-fit
 				if(bf_compare_margins(new_margin, cur_margin)) break;
 				else if(bf_compare_margins(cur_margin, new_margin)) continue;
+
 				// compare by cost
-				else if(server->type->rate < cur_server->type->rate) break;
+				if(server->type->rate < cur_server->type->rate) break;
 				continue;
-			case WF:
-				// modified worst-fit comparison
-				if(wf_compare_margins(new_margin, cur_margin)) break;
-				else if(wf_compare_margins(cur_margin, new_margin)) continue;
+
+			case SM_START_NEW:
+
+				// modified best-fit comparison, designed to leave the highest portion of contiguous resources unused
+				if(has_zeroed_resc(new_margin) && !has_zeroed_resc(cur_margin)) {
+					if(bf_compare_margins(server->type->max_resc, cur_margin)) break;
+					else if(bf_compare_margins(cur_margin, server->type->max_resc)) continue;
+				} else if(!has_zeroed_resc(new_margin) && has_zeroed_resc(cur_margin)) {
+					if(bf_compare_margins(new_margin, cur_server->type->max_resc)) break;
+					else if(bf_compare_margins(cur_server->type->max_resc, new_margin)) continue;
+				} else if(has_zeroed_resc(new_margin) && has_zeroed_resc(cur_margin)) {
+					if(bf_compare_margins(server->type->max_resc, cur_server->type->max_resc)) break;
+					else if(bf_compare_margins(cur_server->type->max_resc, server->type->max_resc)) continue;
+				} else {
+					if(bf_compare_margins(new_margin, cur_margin)) break;
+					else if(bf_compare_margins(cur_margin, new_margin)) continue;
+				}
+				
 				// if possible, take the one with lower bootup time
 				if(server->type->bootTime < cur_server->type->bootTime) break;
 				else if(server->type->bootTime > cur_server->type->bootTime) continue;
 				// compare by cost
 				if(server->type->rate < cur_server->type->rate) break;
 				continue;
-			case FF: // only switching on pending gives better results for long simulations, only switching on time gives good results for short ones
+
+			case SM_PREDICTIVE: // only switching on pending gives better results for long simulations, only switching on time gives good results for short ones
 				intmax_t cur_worst = cur_avail_time + (1 + cur_delayed) * job.est_runtime;
 				intmax_t new_worst = avail_time + (1 + delayed_jobs) * job.est_runtime;
 				// compare by weighted available time
 				if(new_worst <= cur_avail_time) break;
 				else if(avail_time >= cur_worst) continue;
-				// compare by best-fit
-				if(bf_compare_margins(new_margin,cur_margin)) break;
-				else if(bf_compare_margins(cur_margin,new_margin)) continue;
+
 				// compare by available time
 				if(avail_time < cur_avail_time) break;
 				else if(avail_time > cur_avail_time) continue;
+
 				// compare by potentially delayed jobs
 				if(delayed_jobs < cur_delayed) break;
 				else if(delayed_jobs > cur_delayed) continue;
+				
+				// step forward in time and perform best-fit as usual
+				if((delayed_jobs == 0 && cur_delayed == 0) || (has_zeroed_resc(new_margin) && has_zeroed_resc(cur_margin))) {
+					if(bf_compare_margins(new_margin, cur_margin)) break;
+					else if(bf_compare_margins(cur_margin, new_margin)) continue;
+				} else { // try to leave resources to run the delayed jobs
+					if(wf_compare_margins(new_margin, cur_margin)) break;
+					else if(wf_compare_margins(cur_margin, new_margin)) continue;
+				}
+
 				// compare by cost
 				if(server->type->rate < cur_server->type->rate)break;
 				continue;
